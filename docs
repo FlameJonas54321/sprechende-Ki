@@ -1,1 +1,20 @@
+if (best.className !== lastSpoken ||
+        now - lastTime > 3000) {
 
+      lastSpoken = best.className;
+      lastTime = now;
+
+      speechSynthesis.cancel();
+
+      const speech =
+        new SpeechSynthesisUtterance(best.className);
+
+      speech.lang = "de-DE";
+      speechSynthesis.speak(speech);
+    }
+  }
+}
+</script>
+
+</body>
+</html>
