@@ -1,19 +1,306 @@
-if (best.className !== lastSpoken ||
-        now - lastTime > 3000) {
 
-      lastSpoken = best.className;
-      lastTime = now;
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meine sprechende KI</title>
 
-      speechSynthesis.cancel();
+<style>
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  background: #f1f4f9;
+  padding: 20px;
+}
 
-      const speech =
-        new SpeechSynthesisUtterance(best.className);
+button {
+  padding: 12px 18px;
+  margin: 6px;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  background: #2463eb;
+  color: white;
+  font-size: 16px;
+}
 
-      speech.lang = "de-DE";
-      speechSynthesis.speak(speech);
+#webcam-container {
+  margin: 20px auto;
+}
+
+#ergebnis {
+  font-size: 26px;
+  font-weight: bold;
+  margin: 20px;
+}
+
+#status {
+  color: #444;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🤖 Meine sprechende KI</h1>
+
+<p>Ich erkenne Gegenstände und spreche ihre Namen aus!</p>
+
+<button onclick="startKI()">KI starten</button>
+<button onclick="stopKI()">KI stoppen</button>
+<button onclick="startSprache()">Sprachsteuerung aktivieren</button>
+<button onclick="stopSprache()">Mikrofon ausschalten</button>
+
+<div id="webcam-container"></div>
+
+<div id="ergebnis">Noch nichts erkannt</div>
+<p id="status">Bereit zum Starten</p>
+<p id="sprache">Sprachsteuerung: Aus</p>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+<script>
+
+// DEIN TEACHABLE MACHINE MODELL
+const URL =
+"https://teachablemachine.withgoogle.com/models/6J6Qs4ml2/";
+
+let model;
+let webcam;
+let running = false;
+let voiceEnabled = false;
+let recognition = null;
+let lastSpoken = "";
+let lastSpeakTime = 0;
+let stableName = "";
+let stableCount = 0;
+let lastResult = "";
+
+// KI STARTEN
+async function startKI() {
+  if (running) return;
+
+  try {
+    document.getElementById("status").innerText =
+      "KI wird geladen ...";
+
+    if (!model) {
+      model = await tmImage.load(
+        URL + "model.json",
+        URL + "metadata.json"
+      );
     }
+
+    webcam = new tmImage.Webcam(300, 300, true);
+
+    await webcam.setup();
+    await webcam.play();
+
+    document.getElementById("webcam-container")
+      .innerHTML = "";
+
+    document.getElementById("webcam-container")
+      .appendChild(webcam.canvas);
+
+    running = true;
+
+    document.getElementById("status").innerText =
+      "KI ist bereit!";
+
+    loop();
+
+  } catch (error) {
+    document.getElementById("status").innerText =
+      "Fehler: " + error.message;
   }
 }
+
+// KI STOPPEN
+function stopKI() {
+  running = false;
+
+  if (webcam) {
+    webcam.stop();
+    webcam = null;
+  }
+
+  document.getElementById("webcam-container")
+    .innerHTML = "";
+
+  document.getElementById("status").innerText =
+    "KI gestoppt";
+}
+
+// ERKENNUNG
+async function loop() {
+  if (!running) return;
+
+  try {
+    webcam.update();
+    await predict();
+  } catch (error) {
+    document.getElementById("status").innerText =
+      "Erkennungsfehler: " + error.message;
+    stopKI();
+    return;
+  }
+
+  if (running) {
+    requestAnimationFrame(loop);
+  }
+}
+
+// BILDER ERKENNEN
+async function predict() {
+  const predictions = await model.predict(webcam.canvas);
+
+  let best = predictions.reduce((a, b) =>
+    a.probability > b.probability ? a : b
+  );
+
+  const confidence = best.probability;
+
+  document.getElementById("ergebnis").innerText =
+    best.className + " (" +
+    (confidence * 100).toFixed(1) + "%)";
+
+  if (confidence >= 0.85) {
+
+    if (stableName === best.className) {
+      stableCount++;
+    } else {
+      stableName = best.className;
+      stableCount = 1;
+    }
+
+    if (stableCount >= 3) {
+      speakResult(best.className);
+    }
+
+  } else {
+    stableName = "";
+    stableCount = 0;
+  }
+}
+
+// SPRACHAUSGABE
+function speakResult(word) {
+  const now = Date.now();
+
+  if (word === lastSpoken && now - lastSpeakTime < 4000) {
+    return;
+  }
+
+  if (speechSynthesis.speaking) return;
+
+  lastSpoken = word;
+  lastSpeakTime = now;
+  lastResult = word;
+
+  const message = new SpeechSynthesisUtterance(word);
+  message.lang = "de-DE";
+  message.rate = 1;
+
+  speechSynthesis.speak(message);
+}
+
+// SPRACHSTEUERUNG STARTEN
+function startSprache() {
+
+  const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    document.getElementById("sprache").innerText =
+      "Spracherkennung wird von diesem Browser nicht unterstützt.";
+    return;
+  }
+
+  if (voiceEnabled) return;
+
+  recognition = new SpeechRecognition();
+  recognition.lang = "de-DE";
+  recognition.continuous = true;
+  recognition.interimResults = false;
+
+  voiceEnabled = true;
+
+  recognition.onstart = function() {
+    document.getElementById("sprache").innerText =
+      "Sprachsteuerung: Aktiv";
+  };
+
+  recognition.onresult = function(event) {
+    const command = event.results[
+      event.results.length - 1
+    ][0].transcript.toLowerCase().trim();
+
+    document.getElementById("sprache").innerText =
+      "Du hast gesagt: " + command;
+
+    if (command.includes("starte")) {
+      startKI();
+    }
+
+    if (command.includes("stopp") ||
+        command.includes("stoppe")) {
+      stopKI();
+    }
+
+    if (command.includes("wiederhole") ||
+        command.includes("noch einmal")) {
+      if (lastResult) {
+        speechSynthesis.cancel();
+        const message =
+          new SpeechSynthesisUtterance(lastResult);
+        message.lang = "de-DE";
+        speechSynthesis.speak(message);
+      }
+    }
+  };
+
+  recognition.onerror = function(event) {
+    document.getElementById("sprache").innerText =
+      "Mikrofonfehler: " + event.error;
+  };
+
+  recognition.onend = function() {
+    if (voiceEnabled) {
+      setTimeout(() => {
+        if (voiceEnabled) {
+          try {
+            recognition.start();
+          } catch (e) {}
+        }
+      }, 1000);
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch (error) {
+    voiceEnabled = false;
+    document.getElementById("sprache").innerText =
+      "Mikrofon konnte nicht gestartet werden.";
+  }
+}
+
+// SPRACHSTEUERUNG STOPPEN
+function stopSprache() {
+  voiceEnabled = false;
+
+  if (recognition) {
+    recognition.stop();
+    recognition = null;
+  }
+
+  document.getElementById("sprache").innerText =
+    "Sprachsteuerung: Aus";
+}
+
 </script>
 
 </body>
